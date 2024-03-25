@@ -6,6 +6,7 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
+import javafx.scene.control.cell.TextFieldTableCell;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.scene.control.*;
@@ -66,6 +67,7 @@ public class Main extends Application {
         root.setBottom(statsTable);
 
         Scene scene = new Scene(root, 1000, 600);
+        statsTable.setEditable(false);
 
 
         loadDataFromDatabase();
@@ -81,6 +83,78 @@ public class Main extends Application {
         addButton.setOnAction(event -> showAddMatchForm());
         editToggle.setOnAction(event -> updateEditMode());
         stage.setScene(scene);
+        stage.show();
+    }
+    private void showAddMatchForm() {
+        TextField homeTeamField = new TextField();
+        TextField awayTeamField = new TextField();
+        TextField dateField = new TextField();
+        TextField resultField = new TextField();
+        TextField homeGoalsField = new TextField();
+        TextField awayGoalsField = new TextField();
+        TextField stadiumField = new TextField();
+        TextField refereeField = new TextField();
+
+        Label homeTeamLabel= new Label("Home team:");
+        Label awayTeamLabel=new Label("Away team:");
+        Label dateLabel=new Label("Date:");
+        Label resultLabel=new Label("Result:");
+        Label homeGoalsLabel=new Label("Home team goals:");
+        Label awayGoalsLabel=new Label("Away team goals:");
+        Label stadiumLabel=new Label("Stadium:");
+        Label refereeLabel= new Label("Referee:");
+
+
+
+        // Create VBox to hold Labels and TextFields
+        VBox vbox = new VBox(10);
+        vbox.getChildren().addAll(homeTeamLabel,homeTeamField,awayTeamLabel,awayTeamField,
+                dateLabel,dateField,resultLabel,resultField,homeGoalsLabel,homeGoalsField,
+                awayGoalsLabel,awayGoalsField,stadiumLabel,stadiumField,refereeLabel,refereeField);
+        vbox.setPadding(new Insets(10));
+
+        // Create Button for confirmation
+        Button addButton = new Button("Add");
+
+        // Create VBox to hold the form and Button
+        VBox formWithButton = new VBox(10);
+        formWithButton.getChildren().addAll(vbox, addButton);
+        formWithButton.setAlignment(Pos.CENTER);
+
+        // Create Stage to display the form
+        Stage stage = new Stage();
+        stage.setTitle("Add New Match");
+        stage.initModality(Modality.APPLICATION_MODAL);
+
+        // Set action for the Add button
+        addButton.setOnAction(event -> {
+            // Retrieve input values
+            String homeTeam = homeTeamField.getText();
+            String awayTeam = awayTeamField.getText();
+            String date = dateField.getText();
+            String result = resultField.getText();
+            String homeGoals = homeGoalsField.getText();
+            String awayGoals = awayGoalsField.getText();
+            String stadium = stadiumField.getText();
+            String referee = refereeField.getText();
+
+            // Call method to insert team into database
+            try {
+                DAO.insertMatch(homeTeam, awayTeam, date, result, homeGoals, awayGoals, stadium, referee);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+
+            addDateInComboBox(date);
+            // Close the stage after adding the team
+            stage.close();
+        });
+
+        // Create Scene and set it to the Stage
+        Scene scene = new Scene(formWithButton);
+        stage.setScene(scene);
+
+        // Show the Stage
         stage.show();
     }
 
@@ -158,11 +232,12 @@ public class Main extends Application {
     private void searchMatches() {
         statsTable.getItems().clear();
         statsTable.getColumns().clear();
-        String[]columns =new String[]{"Home Team","Away Team","Date","Result","Home Goals","Away Goals","Stadium","Referee"};
+        String[] columns = new String[]{"Home Team", "Away Team", "Date", "Result", "Home Goals", "Away Goals", "Stadium", "Referee"};
         for (int i = 0; i < columns.length; i++) {
             final int j = i;
             TableColumn<String[], String> column = new TableColumn<>(columns[i]);
             column.setCellValueFactory(cellData -> new SimpleStringProperty(cellData.getValue()[j]));
+            column.setCellFactory(TextFieldTableCell.forTableColumn());  // Enable editing
             statsTable.getColumns().add(column);
         }
         String selectedTeam = (String) teamComboBox.getValue();
@@ -197,9 +272,61 @@ public class Main extends Application {
 
 
     private void updateEditMode() {
-        editMode = editToggle.isSelected();
-        statsTable.setEditable(editMode);
+        if (!editMode) {
+            // Enable table editing
+            statsTable.setEditable(true);
+            // Set the columns to editable
+            statsTable.getColumns().forEach(column -> {
+                if (column instanceof TableColumn) {
+                    TableColumn<String[], String> tableColumn = (TableColumn<String[], String>) column;
+                    tableColumn.setEditable(true);
+                    tableColumn.setOnEditCommit(event -> {
+                        TableColumn.CellEditEvent<String[], String> ce = (TableColumn.CellEditEvent<String[], String>) event;
+                        int editedRow = ce.getTablePosition().getRow();
+                        int editedColumn = ce.getTablePosition().getColumn();
+
+                        String[] rowData = ce.getRowValue();
+                        String homeTeam = rowData[0];
+                        String awayTeam = rowData[1];
+                        String date = rowData[2];
+
+                        switch (editedColumn) {
+                            case 2:
+                                // If date column is edited, update the date in the database
+                                deleteDateInComboBox(date);
+                                DAO.updateMatchDate(homeTeam, awayTeam, date, ce.getNewValue());
+                                addDateInComboBox(ce.getNewValue());
+
+                                // Update the table model with new data
+                                rowData[editedColumn] = ce.getNewValue();
+                                break;
+                            case 4:
+                                // If home goals column is edited, update the home goals in the database
+                                DAO.updateMatchHomeGoals(homeTeam, awayTeam, date, ce.getNewValue());
+
+                                // Update the table model with new data
+                                rowData[editedColumn] = ce.getNewValue();
+                                break;
+                            case 5:
+                                // If away goals column is edited, update the away goals in the database
+                                DAO.updateMatchAwayGoals(homeTeam, awayTeam, date, ce.getNewValue());
+
+                                // Update the table model with new data
+                                rowData[editedColumn] = ce.getNewValue();
+                                break;
+                        }
+                    });
+                }
+            });
+        } else {
+            // Disable table editing
+            statsTable.setEditable(false);
+        }
     }
+
+
+
+
 
     private void deleteSelectedRow() {
         String[] selectedItem = statsTable.getSelectionModel().getSelectedItem();
@@ -221,36 +348,7 @@ public class Main extends Application {
         }
     }
 
-    private void showAddMatchForm() {
-        Dialog<String[]> dialog = new Dialog<>();
-        dialog.setTitle("Add Match");
-        dialog.setHeaderText(null);
 
-        // Add form controls to dialog content
-
-        ButtonType addButton = new ButtonType("Add", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(addButton, ButtonType.CANCEL);
-
-        dialog.setResultConverter(buttonType -> {
-            if (buttonType == addButton) {
-                // Extract data from form and return
-                return new String[]{"homeTeam", "awayTeam", "date", "result", "homeGoals", "awayGoals", "stadium", "referee"};
-            }
-            return null;
-        });
-
-        Optional<String[]> result = dialog.showAndWait();
-        result.ifPresent(data -> {
-            try {
-                // Add new match to the database
-                DAO.insertMatch(data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-                addDateInComboBox(data[2]);
-            } catch (SQLException e) {
-                e.printStackTrace();
-                // Handle database exception
-            }
-        });
-    }
 
 
     private void addDateInComboBox(String date) {
@@ -259,6 +357,17 @@ public class Main extends Application {
             endDateComboBox.getItems().add(date);
         }
     }
+    private void deleteDateInComboBox(String date) {
+        ObservableList<Object> startDateList = startDateComboBox.getItems();
+        ObservableList<Object> endDateList = endDateComboBox.getItems();
+
+        int indexOfDate = startDateList.indexOf(date);
+        if (indexOfDate != -1 && DAO.countOfDateInMatches(date) == 1) {
+            startDateList.remove(indexOfDate);
+            endDateList.remove(indexOfDate);
+        }
+    }
+
 
     public static void main(String[] args) {
         launch();
